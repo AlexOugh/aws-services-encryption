@@ -42,9 +42,9 @@ Resources:
   LambdaFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: lambda.lambda_handler
+      Handler: encryption.lambda_handler
       Runtime: python2.7
-      CodeUri: ./src
+      CodeUri: ./src/encryption.py
       Role: !GetAtt LambdaFunctionIAMRole.Arn
       Timeout: 300
 
