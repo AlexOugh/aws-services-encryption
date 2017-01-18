@@ -80,7 +80,7 @@ def lambda_handler(event, context):
 
             # encrypt secret variables
             env_vars = lambda_response['Environment']['Variables']
-            print(env_vars)
+            #print(env_vars)
             for key in env_vars.keys():
                 if key not in secret_function[secret_function.keys()[0]]:    continue
 
