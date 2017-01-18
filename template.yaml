@@ -37,6 +37,7 @@ Resources:
                       - "cloudformation:*"
                       - "kms:*"
                       - "lambda:*"
+                      - "codepipeline:*"
                     Resource: "*"
 
   LambdaFunction:

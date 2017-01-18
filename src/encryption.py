@@ -1,12 +1,44 @@
 
 import boto3
+import json
 from base64 import b64encode, b64decode
+import traceback
 
-def lambda_handler(event, context):
-    print("stack_name: " + event['stack_name'])
+def put_job_success(job, message):
+    """Notify CodePipeline of a successful job
+
+    Args:
+        job: The CodePipeline job ID
+        message: A message to be logged relating to the job status
+
+    Raises:
+        Exception: Any exception thrown by .put_job_success_result()
+
+    """
+    print('Putting job success')
+    print(message)
+    boto3.client('codepipeline').put_job_success_result(jobId=job)
+
+
+def put_job_failure(job, message):
+    """Notify CodePipeline of a failed job
+
+    Args:
+        job: The CodePipeline job ID
+        message: A message to be logged relating to the job status
+
+    Raises:
+        Exception: Any exception thrown by .put_job_failure_result()
+
+    """
+    print('Putting job failure')
+    print(message)
+    boto3.client('codepipeline').put_job_failure_result(jobId=job, failureDetails={'message': message, 'type': 'JobFailed'})
+
+
+def encrypt_secret_env_vars(stack_name):
 
     # find stack template
-    stack_name = event['stack_name']
     stack_response = boto3.client('cloudformation').get_template(
         StackName=stack_name
     )
@@ -35,79 +67,87 @@ def lambda_handler(event, context):
 
     print("Functions with secret params : %s" % functions_with_secret)
 
-    if len(functions_with_secret) > 0:
+    if len(functions_with_secret) == 0: return
 
-        """# find created Lambda Functions of the target stack
-        resource_response = boto3.client('cloudformation').describe_stack_resources(
-            StackName=stack_name
+    for secret_function in functions_with_secret:
+
+        resource_response = boto3.client('cloudformation').describe_stack_resource(
+            StackName=stack_name,
+            LogicalResourceId=secret_function.keys()[0]
         )
-        resources = resource_response['StackResources']
-        function_names = [resource['PhysicalResourceId'] for resource in resources if resource['ResourceType']=='AWS::Lambda::Function']
+        function_name = resource_response['StackResourceDetail']['PhysicalResourceId']
+        print("Found a function with secret params : %s" % function_name)
 
-        for function_name in function_names:"""
+        lambda_response = boto3.client('lambda').get_function_configuration(
+            FunctionName=function_name
+        )
 
-        for secret_function in functions_with_secret:
+        """if 'KMSKeyArn' in lambda_response:
+            print("Env variables of function, '%s' are already encoded" % function_name)
+            continue"""
 
-            resource_response = boto3.client('cloudformation').describe_stack_resource(
-                StackName=stack_name,
-                LogicalResourceId=secret_function.keys()[0]
-            )
-            function_name = resource_response['StackResourceDetail']['PhysicalResourceId']
+        if 'Environment' not in lambda_response:    continue
+        if 'Variables' not in lambda_response['Environment']:   continue
+
+        # encrypt secret variables
+        env_vars = lambda_response['Environment']['Variables']
+        #print(env_vars)
+        for key in env_vars.keys():
+            if key not in secret_function[secret_function.keys()[0]]:    continue
+
+            try:
+                encrypted = b64decode(env_vars[key])
+                # the value was already encrypted, so re-encrypt
+                kms_response = boto3.client('kms').re_encrypt(
+                    CiphertextBlob=b64decode(env_vars[key]),
+                    DestinationKeyId=env_vars['KMS_KEY_ID']
+                )
+            except:
+                # the value was not encrypted, so just encrypt
+                kms_response = boto3.client('kms').encrypt(
+                    KeyId=env_vars['KMS_KEY_ID'],
+                    Plaintext=env_vars[key]
+                )
+
+            env_vars[key] = b64encode(kms_response['CiphertextBlob'])
+
+        print(env_vars)
+
+        # update env variables of the target Lambda Function
+        update_response = boto3.client('lambda').update_function_configuration(
+            FunctionName=function_name,
+            Environment={'Variables': env_vars},
+            #KMSKeyArn=env_vars['KMS_KEY_ARN']
+        )
+        print("Successfully encrypted env variables of function, '%s'" % function_name)
 
 
-            """# function_name is 'stack_name-function_name-alpha_digit' like 'aws-services-authorizer-LambdaFunction-7AZTNS7HYFED',
-            # so we need to parse it to check if this is in 'functions_with_secret' array
-            splitted = function_name.split('-')
-            secret_function = None
-            for fs in functions_with_secret:
-                if splitted[len(splitted)-2] == fs.keys()[0]:
-                    secret_function = fs     # {u'LambdaFunction': [u'SSO_MASTER_TOKEN', u'SSO_BASIC_AUTH_PASSWORD']}
+def lambda_handler(event, context):
 
-            if secret_function is None: continue"""
+    print(event)
 
+    # Extract the Job ID
+    job_id = event['CodePipeline.job']['id']
 
-            print("Found a function with secret params : %s" % function_name)
-            lambda_response = boto3.client('lambda').get_function_configuration(
-                FunctionName=function_name
-            )
+    # Extract the Job Data
+    job_data = event['CodePipeline.job']['data']
 
-            """if 'KMSKeyArn' in lambda_response:
-                print("Env variables of function, '%s' are already encoded" % function_name)
-                continue"""
+    # Extract the params
+    user_parameters = job_data['actionConfiguration']['configuration']['UserParameters']
+    decoded_parameters = json.loads(user_parameters)
 
-            if 'Environment' not in lambda_response:    continue
-            if 'Variables' not in lambda_response['Environment']:   continue
+    stack_name = decoded_parameters['stack_name']
+    print("stack_name: " + stack_name)
 
-            # encrypt secret variables
-            env_vars = lambda_response['Environment']['Variables']
-            #print(env_vars)
-            for key in env_vars.keys():
-                if key not in secret_function[secret_function.keys()[0]]:    continue
+    try:
+        encrypt_secret_env_vars(stack_name)
+        put_job_success(job_id, "Successfully encrypted env variables of all functions")
+    except Exception, ex:
+        # If any other exceptions which we didn't expect are raised
+        # then fail the job and log the exception message.
+        print('Function failed due to exception.')
+        print(ex)
+        traceback.print_exc()
+        put_job_failure(job_id, 'Function exception: ' + str(ex))
 
-                try:
-                    encrypted = b64decode(env_vars[key])
-                    # the value was already encrypted, so re-encrypt
-                    kms_response = boto3.client('kms').re_encrypt(
-                        CiphertextBlob=b64decode(env_vars[key]),
-                        DestinationKeyId=env_vars['KMS_KEY_ID']
-                    )
-                except:
-                    # the value was not encrypted, so just encrypt
-                    kms_response = boto3.client('kms').encrypt(
-                        KeyId=env_vars['KMS_KEY_ID'],
-                        Plaintext=env_vars[key]
-                    )
-
-                env_vars[key] = b64encode(kms_response['CiphertextBlob'])
-
-            print(env_vars)
-
-            # update env variables of the target Lambda Function
-            update_response = boto3.client('lambda').update_function_configuration(
-                FunctionName=function_name,
-                Environment={'Variables': env_vars},
-                #KMSKeyArn=env_vars['KMS_KEY_ARN']
-            )
-            print("Successfully encrypted env variables of function, '%s'" % function_name)
-
-    return True
+    return "Complete."
