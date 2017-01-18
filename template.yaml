@@ -44,7 +44,7 @@ Resources:
     Properties:
       Handler: encryption.lambda_handler
       Runtime: python2.7
-      CodeUri: ./src/encryption.py
+      CodeUri: ./src
       Role: !GetAtt LambdaFunctionIAMRole.Arn
       Timeout: 300
 

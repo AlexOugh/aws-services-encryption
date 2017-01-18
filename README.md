@@ -1,18 +1,18 @@
 
-# Lambda Manager
+# Lambda Environment Variable Encryptor
 
-Lambda function to update Lambda function codes and encrypt Lambda function secret environment variables
+Lambda function to encrypt secret environment variables of Lambda Functions
 
 ![aws-services][aws-services-image]
 
 ## How To Setup
 
-    $ AWS CodePipeline, 'aws-services-lambda'
+    $ AWS CodePipeline, 'aws-services-encryption'
 
 
 ## How To Test Lambda Functions
 
     $ cd tests
-    $ python test_xxx.py
+    $ python test.py
 
 [aws-services-image]: ./docs/images/logo.png?raw=true
