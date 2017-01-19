@@ -15,8 +15,6 @@ Please see here, https://github.com/SungardAS/aws-services-federation#how-to-set
 ## How To Test Lambda Functions
 
 - $ cd tests
-- Export environment variables, SSO_HOST, SSO_BASIC_AUTH_USERNAME, SSO_BASIC_AUTH_PASSWORD, SSO_MASTER_TOKEN
-- Replace \<username\> and \<password\> with proper values in 'test_authorizer.py'
 - $ python test_authorizer.py
 
 [aws-services-image]: ./docs/images/logo.png?raw=true
